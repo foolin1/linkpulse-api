@@ -1,5 +1,7 @@
+using LinkPulse.Api.Data;
 using LinkPulse.Api.HealthChecks;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using StackExchange.Redis;
 
@@ -8,18 +10,32 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 
+var postgreSqlConnectionString =
+    builder.Configuration.GetConnectionString("PostgreSql")
+    ?? throw new InvalidOperationException(
+        "Connection string 'PostgreSql' is not configured.");
+
 var redisConnectionString =
     builder.Configuration.GetConnectionString("Redis")
     ?? throw new InvalidOperationException(
         "Connection string 'Redis' is not configured.");
 
-builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
-{
-    var options = ConfigurationOptions.Parse(redisConnectionString);
-    options.AbortOnConnectFail = false;
+builder.Services.AddDbContext<LinkPulseDbContext>(
+    options =>
+    {
+        options.UseNpgsql(postgreSqlConnectionString);
+    });
 
-    return ConnectionMultiplexer.Connect(options);
-});
+builder.Services.AddSingleton<IConnectionMultiplexer>(
+    _ =>
+    {
+        var options =
+            ConfigurationOptions.Parse(redisConnectionString);
+
+        options.AbortOnConnectFail = false;
+
+        return ConnectionMultiplexer.Connect(options);
+    });
 
 builder.Services
     .AddHealthChecks()
@@ -63,7 +79,8 @@ app.MapGet(
                 new
                 {
                     name = assembly.Name,
-                    version = assembly.Version?.ToString() ?? "unknown",
+                    version = assembly.Version?.ToString()
+                        ?? "unknown",
                     environment = environment.EnvironmentName
                 });
         })
