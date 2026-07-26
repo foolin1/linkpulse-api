@@ -1,0 +1,41 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+artifacts/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Test results
+TestResults/
+coverage/
+coverage-results/
+*.trx
+*.coverage
+*.coveragexml
+
+# Local environment
+.env
+.env.local
+appsettings.Local.json
+
+# Local databases and logs
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# Docker and local volumes
+docker-data/
+postgres-data/
+redis-data/
+
+# Operating systems
+.DS_Store
+Thumbs.db
