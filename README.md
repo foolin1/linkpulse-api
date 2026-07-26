@@ -1,7 +1,7 @@
 # LinkPulse API
 
 [![CI](https://github.com/foolin1/linkpulse-api/actions/workflows/ci.yml/badge.svg)](https://github.com/foolin1/linkpulse-api/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/foolin1/linkpulse-api)](https://github.com/foolin1/linkpulse-api/releases)
+[![Release](https://img.shields.io/github/v/tag/foolin1/linkpulse-api?sort=semver&label=release)](https://github.com/foolin1/linkpulse-api/releases/latest)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1)](https://www.postgresql.org/)
 [![Redis](https://img.shields.io/badge/Redis-7.4-DC382D)](https://redis.io/)
