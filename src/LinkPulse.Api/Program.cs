@@ -1,10 +1,12 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using LinkPulse.Api.Authentication;
+using LinkPulse.Api.Caching;
 using LinkPulse.Api.Data;
 using LinkPulse.Api.Data.Entities;
 using LinkPulse.Api.Features.Auth;
 using LinkPulse.Api.Features.Links;
+using LinkPulse.Api.Features.Redirects;
 using LinkPulse.Api.HealthChecks;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -62,26 +64,60 @@ if (jwtOptions.AccessTokenLifetimeMinutes is < 1 or > 1440)
         "JWT access token lifetime must be between 1 and 1440 minutes.");
 }
 
-builder.Services.Configure<JwtOptions>(jwtSection);
+var linkCacheSection =
+    builder.Configuration.GetSection(
+        LinkCacheOptions.SectionName);
 
-builder.Services.AddSingleton(TimeProvider.System);
+var linkCacheOptions =
+    linkCacheSection.Get<LinkCacheOptions>()
+    ?? new LinkCacheOptions();
+
+if (string.IsNullOrWhiteSpace(
+        linkCacheOptions.KeyPrefix))
+{
+    throw new InvalidOperationException(
+        "Redis link cache key prefix is not configured.");
+}
+
+if (linkCacheOptions.DefaultTtlMinutes
+    is < 1 or > 10080)
+{
+    throw new InvalidOperationException(
+        "Redis link cache TTL must be between 1 and 10080 minutes.");
+}
+
+builder.Services.Configure<JwtOptions>(
+    jwtSection);
+
+builder.Services.Configure<LinkCacheOptions>(
+    linkCacheSection);
+
+builder.Services.AddSingleton(
+    TimeProvider.System);
 
 builder.Services.AddDbContext<LinkPulseDbContext>(
     options =>
     {
-        options.UseNpgsql(postgreSqlConnectionString);
+        options.UseNpgsql(
+            postgreSqlConnectionString);
     });
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(
     _ =>
     {
         var options =
-            ConfigurationOptions.Parse(redisConnectionString);
+            ConfigurationOptions.Parse(
+                redisConnectionString);
 
         options.AbortOnConnectFail = false;
 
-        return ConnectionMultiplexer.Connect(options);
+        return ConnectionMultiplexer.Connect(
+            options);
     });
+
+builder.Services.AddSingleton<
+    ILinkCache,
+    RedisLinkCache>();
 
 builder.Services.AddScoped<
     IPasswordHasher<ApplicationUser>,
@@ -124,7 +160,8 @@ builder.Services
                     NameClaimType =
                         JwtRegisteredClaimNames.Sub,
 
-                    ClockSkew = TimeSpan.FromSeconds(30)
+                    ClockSkew =
+                        TimeSpan.FromSeconds(30)
                 };
         });
 
@@ -169,15 +206,18 @@ app.MapGet(
         "/version",
         (IHostEnvironment environment) =>
         {
-            var assembly = typeof(Program).Assembly.GetName();
+            var assembly =
+                typeof(Program).Assembly.GetName();
 
             return Results.Ok(
                 new
                 {
                     name = assembly.Name,
-                    version = assembly.Version?.ToString()
+                    version =
+                        assembly.Version?.ToString()
                         ?? "unknown",
-                    environment = environment.EnvironmentName
+                    environment =
+                        environment.EnvironmentName
                 });
         })
     .WithName("GetVersion")
@@ -185,13 +225,15 @@ app.MapGet(
 
 AuthEndpoints.Map(app);
 LinkEndpoints.Map(app);
+RedirectEndpoints.Map(app);
 
 app.MapHealthChecks(
     "/health/live",
     new HealthCheckOptions
     {
         Predicate = _ => false,
-        ResponseWriter = HealthCheckResponseWriter.WriteAsync
+        ResponseWriter =
+            HealthCheckResponseWriter.WriteAsync
     });
 
 app.MapHealthChecks(
@@ -200,7 +242,8 @@ app.MapHealthChecks(
     {
         Predicate = healthCheck =>
             healthCheck.Tags.Contains("ready"),
-        ResponseWriter = HealthCheckResponseWriter.WriteAsync
+        ResponseWriter =
+            HealthCheckResponseWriter.WriteAsync
     });
 
 app.MapHealthChecks(
@@ -209,7 +252,8 @@ app.MapHealthChecks(
     {
         Predicate = healthCheck =>
             healthCheck.Tags.Contains("ready"),
-        ResponseWriter = HealthCheckResponseWriter.WriteAsync
+        ResponseWriter =
+            HealthCheckResponseWriter.WriteAsync
     });
 
 app.Run();

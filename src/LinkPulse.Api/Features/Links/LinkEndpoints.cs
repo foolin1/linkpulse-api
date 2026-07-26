@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using LinkPulse.Api.Authentication;
+using LinkPulse.Api.Caching;
 using LinkPulse.Api.Data;
 using LinkPulse.Api.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -110,7 +111,8 @@ public static class LinkEndpoints
                 currentTime,
                 request.ExpiresAt);
 
-            dbContext.ShortLinks.Add(customShortLink);
+            dbContext.ShortLinks.Add(
+                customShortLink);
 
             try
             {
@@ -297,6 +299,7 @@ public static class LinkEndpoints
         HttpContext httpContext,
         ClaimsPrincipal principal,
         LinkPulseDbContext dbContext,
+        ILinkCache linkCache,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
@@ -340,6 +343,10 @@ public static class LinkEndpoints
         await dbContext.SaveChangesAsync(
             cancellationToken);
 
+        await linkCache.RemoveAsync(
+            shortLink.ShortCode,
+            cancellationToken);
+
         return Results.Ok(
             CreateResponse(
                 shortLink,
@@ -351,6 +358,7 @@ public static class LinkEndpoints
         Guid id,
         ClaimsPrincipal principal,
         LinkPulseDbContext dbContext,
+        ILinkCache linkCache,
         CancellationToken cancellationToken)
     {
         var ownerId = principal.GetUserId();
@@ -375,6 +383,10 @@ public static class LinkEndpoints
         shortLink.Deactivate();
 
         await dbContext.SaveChangesAsync(
+            cancellationToken);
+
+        await linkCache.RemoveAsync(
+            shortLink.ShortCode,
             cancellationToken);
 
         return Results.NoContent();
