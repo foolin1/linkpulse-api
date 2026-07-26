@@ -1,14 +1,18 @@
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
+using System.Threading.RateLimiting;
 using LinkPulse.Api.Authentication;
 using LinkPulse.Api.Caching;
 using LinkPulse.Api.Data;
 using LinkPulse.Api.Data.Entities;
+using LinkPulse.Api.Expiration;
 using LinkPulse.Api.Features.Analytics;
 using LinkPulse.Api.Features.Auth;
 using LinkPulse.Api.Features.Links;
 using LinkPulse.Api.Features.Redirects;
 using LinkPulse.Api.HealthChecks;
+using LinkPulse.Api.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
@@ -94,23 +98,95 @@ if (linkCacheOptions.DefaultTtlMinutes
         "Redis link cache TTL must be between 1 and 10080 minutes.");
 }
 
+var rateLimitSection =
+    builder.Configuration.GetSection(
+        LinkPulseRateLimitOptions.SectionName);
+
+var rateLimitOptions =
+    rateLimitSection
+        .Get<LinkPulseRateLimitOptions>()
+    ?? new LinkPulseRateLimitOptions();
+
+if (rateLimitOptions
+        .LinkCreationPermitLimit
+    is < 1 or > 100000)
+{
+    throw new InvalidOperationException(
+        "Link creation rate limit must be between 1 and 100000 requests.");
+}
+
+if (rateLimitOptions
+        .LinkCreationWindowSeconds
+    is < 1 or > 86400)
+{
+    throw new InvalidOperationException(
+        "Link creation rate limit window must be between 1 and 86400 seconds.");
+}
+
+if (rateLimitOptions.RedirectPermitLimit
+    is < 1 or > 100000)
+{
+    throw new InvalidOperationException(
+        "Redirect rate limit must be between 1 and 100000 requests.");
+}
+
+if (rateLimitOptions.RedirectWindowSeconds
+    is < 1 or > 86400)
+{
+    throw new InvalidOperationException(
+        "Redirect rate limit window must be between 1 and 86400 seconds.");
+}
+
+var expirationCleanupSection =
+    builder.Configuration.GetSection(
+        ExpiredLinkCleanupOptions.SectionName);
+
+var expirationCleanupOptions =
+    expirationCleanupSection
+        .Get<ExpiredLinkCleanupOptions>()
+    ?? new ExpiredLinkCleanupOptions();
+
+if (expirationCleanupOptions.IntervalSeconds
+    is < 1 or > 86400)
+{
+    throw new InvalidOperationException(
+        "Expiration cleanup interval must be between 1 and 86400 seconds.");
+}
+
+if (expirationCleanupOptions.BatchSize
+    is < 1 or > 1000)
+{
+    throw new InvalidOperationException(
+        "Expiration cleanup batch size must be between 1 and 1000.");
+}
+
 builder.Services.Configure<JwtOptions>(
     jwtSection);
 
 builder.Services.Configure<LinkCacheOptions>(
     linkCacheSection);
 
+builder.Services.Configure<
+    LinkPulseRateLimitOptions>(
+    rateLimitSection);
+
+builder.Services.Configure<
+    ExpiredLinkCleanupOptions>(
+    expirationCleanupSection);
+
 builder.Services.AddSingleton(
     TimeProvider.System);
 
-builder.Services.AddDbContext<LinkPulseDbContext>(
+builder.Services.AddDbContext<
+    LinkPulseDbContext>(
     options =>
     {
         options.UseNpgsql(
             postgreSqlConnectionString);
     });
 
-builder.Services.AddSingleton<IConnectionMultiplexer>(
+builder.Services.AddSingleton<
+    IConnectionMultiplexer>(
     _ =>
     {
         var options =
@@ -132,6 +208,13 @@ builder.Services.AddScoped<
     ClickEventRecorder>();
 
 builder.Services.AddScoped<
+    IExpiredLinkProcessor,
+    ExpiredLinkProcessor>();
+
+builder.Services.AddHostedService<
+    ExpiredLinkCleanupWorker>();
+
+builder.Services.AddScoped<
     IPasswordHasher<ApplicationUser>,
     PasswordHasher<ApplicationUser>>();
 
@@ -145,7 +228,8 @@ builder.Services.AddSingleton<
 
 builder.Services
     .AddAuthentication(
-        JwtBearerDefaults.AuthenticationScheme)
+        JwtBearerDefaults
+            .AuthenticationScheme)
     .AddJwtBearer(
         options =>
         {
@@ -155,14 +239,18 @@ builder.Services
                 new TokenValidationParameters
                 {
                     ValidateIssuer = true,
+
                     ValidIssuer =
                         jwtOptions.Issuer,
 
                     ValidateAudience = true,
+
                     ValidAudience =
                         jwtOptions.Audience,
 
-                    ValidateIssuerSigningKey = true,
+                    ValidateIssuerSigningKey =
+                        true,
+
                     IssuerSigningKey =
                         new SymmetricSecurityKey(
                             Encoding.UTF8.GetBytes(
@@ -170,10 +258,13 @@ builder.Services
                                     .SigningKey)),
 
                     ValidateLifetime = true,
-                    RequireExpirationTime = true,
+
+                    RequireExpirationTime =
+                        true,
 
                     NameClaimType =
-                        JwtRegisteredClaimNames.Sub,
+                        JwtRegisteredClaimNames
+                            .Sub,
 
                     ClockSkew =
                         TimeSpan.FromSeconds(30)
@@ -181,6 +272,120 @@ builder.Services
         });
 
 builder.Services.AddAuthorization();
+
+builder.Services.AddRateLimiter(
+    options =>
+    {
+        options.RejectionStatusCode =
+            StatusCodes
+                .Status429TooManyRequests;
+
+        options.OnRejected =
+            async (
+                context,
+                cancellationToken) =>
+            {
+                var response =
+                    context.HttpContext.Response;
+
+                response.StatusCode =
+                    StatusCodes
+                        .Status429TooManyRequests;
+
+                if (context.Lease.TryGetMetadata(
+                        MetadataName.RetryAfter,
+                        out var retryAfter))
+                {
+                    var retryAfterSeconds =
+                        Math.Max(
+                            1,
+                            (int)Math.Ceiling(
+                                retryAfter
+                                    .TotalSeconds));
+
+                    response.Headers[
+                        "Retry-After"] =
+                        retryAfterSeconds.ToString(
+                            CultureInfo
+                                .InvariantCulture);
+                }
+
+                await Results.Problem(
+                        statusCode:
+                            StatusCodes
+                                .Status429TooManyRequests,
+                        title:
+                            "Request rate limit exceeded",
+                        detail:
+                            "Too many requests were sent in the current time window.")
+                    .ExecuteAsync(
+                        context.HttpContext);
+            };
+
+        options.AddPolicy(
+            RateLimitPolicyNames.LinkCreation,
+            httpContext =>
+                RateLimitPartition
+                    .GetFixedWindowLimiter(
+                        partitionKey:
+                            RateLimitPartitionKeyProvider
+                                .ForLinkCreation(
+                                    httpContext),
+                        factory:
+                            _ =>
+                                new FixedWindowRateLimiterOptions
+                                {
+                                    PermitLimit =
+                                        rateLimitOptions
+                                            .LinkCreationPermitLimit,
+
+                                    Window =
+                                        TimeSpan.FromSeconds(
+                                            rateLimitOptions
+                                                .LinkCreationWindowSeconds),
+
+                                    QueueProcessingOrder =
+                                        QueueProcessingOrder
+                                            .OldestFirst,
+
+                                    QueueLimit = 0,
+
+                                    AutoReplenishment =
+                                        true
+                                }));
+
+        options.AddPolicy(
+            RateLimitPolicyNames.Redirects,
+            httpContext =>
+                RateLimitPartition
+                    .GetFixedWindowLimiter(
+                        partitionKey:
+                            RateLimitPartitionKeyProvider
+                                .ForRedirect(
+                                    httpContext),
+                        factory:
+                            _ =>
+                                new FixedWindowRateLimiterOptions
+                                {
+                                    PermitLimit =
+                                        rateLimitOptions
+                                            .RedirectPermitLimit,
+
+                                    Window =
+                                        TimeSpan.FromSeconds(
+                                            rateLimitOptions
+                                                .RedirectWindowSeconds),
+
+                                    QueueProcessingOrder =
+                                        QueueProcessingOrder
+                                            .OldestFirst,
+
+                                    QueueLimit = 0,
+
+                                    AutoReplenishment =
+                                        true
+                                }));
+    });
 
 builder.Services
     .AddHealthChecks()
@@ -199,7 +404,12 @@ var app = builder.Build();
 
 app.UseExceptionHandler();
 
+app.UseRouting();
+
 app.UseAuthentication();
+
+app.UseRateLimiter();
+
 app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())
@@ -212,8 +422,12 @@ app.MapGet(
         () => Results.Ok(
             new
             {
-                service = "LinkPulse API",
-                status = "Running",
+                service =
+                    "LinkPulse API",
+
+                status =
+                    "Running",
+
                 documentation =
                     "/openapi/v1.json"
             }))
@@ -232,7 +446,8 @@ app.MapGet(
             return Results.Ok(
                 new
                 {
-                    name = assembly.Name,
+                    name =
+                        assembly.Name,
 
                     version =
                         assembly.Version

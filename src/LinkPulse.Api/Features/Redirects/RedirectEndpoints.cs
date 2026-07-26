@@ -1,6 +1,7 @@
 using LinkPulse.Api.Caching;
 using LinkPulse.Api.Data;
 using LinkPulse.Api.Features.Links;
+using LinkPulse.Api.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace LinkPulse.Api.Features.Redirects;
@@ -13,6 +14,8 @@ public static class RedirectEndpoints
                 "/{shortCode}",
                 RedirectAsync)
             .AllowAnonymous()
+            .RequireRateLimiting(
+                RateLimitPolicyNames.Redirects)
             .WithName("RedirectShortLink")
             .WithTags("Redirects");
     }
@@ -77,7 +80,8 @@ public static class RedirectEndpoints
                 "X-LinkPulse-Cache"] = "STALE";
         }
         else if (cacheResult.Status
-                 == LinkCacheLookupStatus.Unavailable)
+                 == LinkCacheLookupStatus
+                     .Unavailable)
         {
             httpContext.Response.Headers[
                 "X-LinkPulse-Cache"] = "BYPASS";
@@ -88,13 +92,14 @@ public static class RedirectEndpoints
                 "X-LinkPulse-Cache"] = "MISS";
         }
 
-        var shortLink = await dbContext.ShortLinks
-            .AsNoTracking()
-            .SingleOrDefaultAsync(
-                link =>
-                    link.ShortCode
-                    == normalizedShortCode,
-                cancellationToken);
+        var shortLink =
+            await dbContext.ShortLinks
+                .AsNoTracking()
+                .SingleOrDefaultAsync(
+                    link =>
+                        link.ShortCode
+                        == normalizedShortCode,
+                    cancellationToken);
 
         if (shortLink is null)
         {
@@ -122,7 +127,8 @@ public static class RedirectEndpoints
                 statusCode:
                     StatusCodes
                         .Status500InternalServerError,
-                title: "Invalid redirect target",
+                title:
+                    "Invalid redirect target",
                 detail:
                     "The stored target URL cannot be used for a redirect.");
         }
@@ -154,7 +160,8 @@ public static class RedirectEndpoints
     private static bool IsValidShortCode(
         string shortCode)
     {
-        if (string.IsNullOrWhiteSpace(shortCode))
+        if (string.IsNullOrWhiteSpace(
+                shortCode))
         {
             return false;
         }
@@ -171,7 +178,8 @@ public static class RedirectEndpoints
 
         return normalizedShortCode.All(
             character =>
-                char.IsAsciiLetterOrDigit(character)
+                char.IsAsciiLetterOrDigit(
+                    character)
                 || character == '-'
                 || character == '_');
     }
@@ -196,7 +204,8 @@ public static class RedirectEndpoints
         return Results.Problem(
             statusCode:
                 StatusCodes.Status404NotFound,
-            title: "Short link was not found",
+            title:
+                "Short link was not found",
             detail:
                 "No short link exists for the specified code.");
     }
@@ -206,7 +215,8 @@ public static class RedirectEndpoints
         return Results.Problem(
             statusCode:
                 StatusCodes.Status410Gone,
-            title: "Short link is unavailable",
+            title:
+                "Short link is unavailable",
             detail:
                 "The short link is disabled or has expired.");
     }

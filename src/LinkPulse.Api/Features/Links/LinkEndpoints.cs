@@ -3,6 +3,7 @@ using LinkPulse.Api.Authentication;
 using LinkPulse.Api.Caching;
 using LinkPulse.Api.Data;
 using LinkPulse.Api.Data.Entities;
+using LinkPulse.Api.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -27,6 +28,8 @@ public static class LinkEndpoints
         group.MapPost(
                 string.Empty,
                 CreateLinkAsync)
+            .RequireRateLimiting(
+                RateLimitPolicyNames.LinkCreation)
             .WithName("CreateShortLink");
 
         group.MapGet(
@@ -59,7 +62,8 @@ public static class LinkEndpoints
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        var currentTime = timeProvider.GetUtcNow();
+        var currentTime =
+            timeProvider.GetUtcNow();
 
         var validationErrors =
             ShortLinkInputValidator.ValidateCreate(
@@ -80,15 +84,17 @@ public static class LinkEndpoints
         }
 
         var targetUrl =
-            ShortLinkInputValidator.NormalizeTargetUrl(
-                request.TargetUrl!);
+            ShortLinkInputValidator
+                .NormalizeTargetUrl(
+                    request.TargetUrl!);
 
         if (!string.IsNullOrWhiteSpace(
                 request.CustomAlias))
         {
             var customAlias =
-                ShortLinkInputValidator.NormalizeAlias(
-                    request.CustomAlias);
+                ShortLinkInputValidator
+                    .NormalizeAlias(
+                        request.CustomAlias);
 
             var aliasExists =
                 await dbContext.ShortLinks
@@ -104,12 +110,13 @@ public static class LinkEndpoints
                 return AliasConflict();
             }
 
-            var customShortLink = new ShortLink(
-                ownerId.Value,
-                customAlias,
-                targetUrl,
-                currentTime,
-                request.ExpiresAt);
+            var customShortLink =
+                new ShortLink(
+                    ownerId.Value,
+                    customAlias,
+                    targetUrl,
+                    currentTime,
+                    request.ExpiresAt);
 
             dbContext.ShortLinks.Add(
                 customShortLink);
@@ -120,7 +127,8 @@ public static class LinkEndpoints
                     cancellationToken);
             }
             catch (DbUpdateException exception)
-                when (IsUniqueViolation(exception))
+                when (IsUniqueViolation(
+                    exception))
             {
                 return AliasConflict();
             }
@@ -134,7 +142,8 @@ public static class LinkEndpoints
         }
 
         for (var attempt = 0;
-             attempt < MaximumGenerationAttempts;
+             attempt
+             < MaximumGenerationAttempts;
              attempt++)
         {
             var generatedCode =
@@ -154,14 +163,16 @@ public static class LinkEndpoints
                 continue;
             }
 
-            var shortLink = new ShortLink(
-                ownerId.Value,
-                generatedCode,
-                targetUrl,
-                currentTime,
-                request.ExpiresAt);
+            var shortLink =
+                new ShortLink(
+                    ownerId.Value,
+                    generatedCode,
+                    targetUrl,
+                    currentTime,
+                    request.ExpiresAt);
 
-            dbContext.ShortLinks.Add(shortLink);
+            dbContext.ShortLinks.Add(
+                shortLink);
 
             try
             {
@@ -176,7 +187,8 @@ public static class LinkEndpoints
                         currentTime));
             }
             catch (DbUpdateException exception)
-                when (IsUniqueViolation(exception))
+                when (IsUniqueViolation(
+                    exception))
             {
                 dbContext.Entry(shortLink).State =
                     EntityState.Detached;
@@ -185,8 +197,10 @@ public static class LinkEndpoints
 
         return Results.Problem(
             statusCode:
-                StatusCodes.Status503ServiceUnavailable,
-            title: "Short code generation failed",
+                StatusCodes
+                    .Status503ServiceUnavailable,
+            title:
+                "Short code generation failed",
             detail:
                 "A unique short code could not be generated. Try the request again.");
     }
@@ -205,10 +219,11 @@ public static class LinkEndpoints
             return Results.Unauthorized();
         }
 
-        var paginationErrors = ReadPagination(
-            httpContext.Request,
-            out var page,
-            out var pageSize);
+        var paginationErrors =
+            ReadPagination(
+                httpContext.Request,
+                out var page,
+                out var pageSize);
 
         if (paginationErrors.Count > 0)
         {
@@ -223,17 +238,21 @@ public static class LinkEndpoints
                     shortLink.OwnerId
                     == ownerId.Value);
 
-        var totalCount = await query.CountAsync(
-            cancellationToken);
+        var totalCount =
+            await query.CountAsync(
+                cancellationToken);
 
         var shortLinks = await query
             .OrderByDescending(
-                shortLink => shortLink.CreatedAt)
+                shortLink =>
+                    shortLink.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync(cancellationToken);
+            .ToListAsync(
+                cancellationToken);
 
-        var currentTime = timeProvider.GetUtcNow();
+        var currentTime =
+            timeProvider.GetUtcNow();
 
         var items = shortLinks
             .Select(
@@ -247,7 +266,8 @@ public static class LinkEndpoints
         var totalPages = totalCount == 0
             ? 0
             : (int)Math.Ceiling(
-                totalCount / (double)pageSize);
+                totalCount
+                / (double)pageSize);
 
         return Results.Ok(
             new PagedShortLinksResponse(
@@ -273,13 +293,15 @@ public static class LinkEndpoints
             return Results.Unauthorized();
         }
 
-        var shortLink = await dbContext.ShortLinks
-            .AsNoTracking()
-            .SingleOrDefaultAsync(
-                link =>
-                    link.Id == id
-                    && link.OwnerId == ownerId.Value,
-                cancellationToken);
+        var shortLink =
+            await dbContext.ShortLinks
+                .AsNoTracking()
+                .SingleOrDefaultAsync(
+                    link =>
+                        link.Id == id
+                        && link.OwnerId
+                        == ownerId.Value,
+                    cancellationToken);
 
         if (shortLink is null)
         {
@@ -303,7 +325,8 @@ public static class LinkEndpoints
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        var currentTime = timeProvider.GetUtcNow();
+        var currentTime =
+            timeProvider.GetUtcNow();
 
         var validationErrors =
             ShortLinkInputValidator.ValidateUpdate(
@@ -323,12 +346,14 @@ public static class LinkEndpoints
             return Results.Unauthorized();
         }
 
-        var shortLink = await dbContext.ShortLinks
-            .SingleOrDefaultAsync(
-                link =>
-                    link.Id == id
-                    && link.OwnerId == ownerId.Value,
-                cancellationToken);
+        var shortLink =
+            await dbContext.ShortLinks
+                .SingleOrDefaultAsync(
+                    link =>
+                        link.Id == id
+                        && link.OwnerId
+                        == ownerId.Value,
+                    cancellationToken);
 
         if (shortLink is null)
         {
@@ -336,8 +361,9 @@ public static class LinkEndpoints
         }
 
         shortLink.Update(
-            ShortLinkInputValidator.NormalizeTargetUrl(
-                request.TargetUrl!),
+            ShortLinkInputValidator
+                .NormalizeTargetUrl(
+                    request.TargetUrl!),
             request.ExpiresAt);
 
         await dbContext.SaveChangesAsync(
@@ -368,12 +394,14 @@ public static class LinkEndpoints
             return Results.Unauthorized();
         }
 
-        var shortLink = await dbContext.ShortLinks
-            .SingleOrDefaultAsync(
-                link =>
-                    link.Id == id
-                    && link.OwnerId == ownerId.Value,
-                cancellationToken);
+        var shortLink =
+            await dbContext.ShortLinks
+                .SingleOrDefaultAsync(
+                    link =>
+                        link.Id == id
+                        && link.OwnerId
+                        == ownerId.Value,
+                    cancellationToken);
 
         if (shortLink is null)
         {
@@ -421,16 +449,18 @@ public static class LinkEndpoints
             isExpired);
     }
 
-    private static Dictionary<string, string[]> ReadPagination(
-        HttpRequest request,
-        out int page,
-        out int pageSize)
+    private static Dictionary<string, string[]>
+        ReadPagination(
+            HttpRequest request,
+            out int page,
+            out int pageSize)
     {
         page = DefaultPage;
         pageSize = DefaultPageSize;
 
-        var errors = new Dictionary<string, string[]>(
-            StringComparer.Ordinal);
+        var errors =
+            new Dictionary<string, string[]>(
+                StringComparer.Ordinal);
 
         if (request.Query.TryGetValue(
                 "page",
@@ -453,7 +483,8 @@ public static class LinkEndpoints
                     pageSizeValue.ToString(),
                     out pageSize)
                 || pageSize < 1
-                || pageSize > MaximumPageSize))
+                || pageSize
+                > MaximumPageSize))
         {
             errors["pageSize"] =
             [
@@ -467,8 +498,10 @@ public static class LinkEndpoints
     private static IResult AliasConflict()
     {
         return Results.Problem(
-            statusCode: StatusCodes.Status409Conflict,
-            title: "Short alias is already used",
+            statusCode:
+                StatusCodes.Status409Conflict,
+            title:
+                "Short alias is already used",
             detail:
                 "Another short link already uses the specified alias.");
     }
@@ -476,8 +509,10 @@ public static class LinkEndpoints
     private static IResult LinkNotFound()
     {
         return Results.Problem(
-            statusCode: StatusCodes.Status404NotFound,
-            title: "Short link was not found",
+            statusCode:
+                StatusCodes.Status404NotFound,
+            title:
+                "Short link was not found",
             detail:
                 "The link does not exist or does not belong to the current user.");
     }
@@ -489,7 +524,8 @@ public static class LinkEndpoints
             is PostgresException
         {
             SqlState:
-                    PostgresErrorCodes.UniqueViolation
+                    PostgresErrorCodes
+                        .UniqueViolation
         };
     }
 }
