@@ -5,12 +5,12 @@ namespace LinkPulse.IntegrationTests;
 
 public sealed class RateLimitEndpointTests
     : IClassFixture<
-        LinkPulseWebApplicationFactory>
+        RateLimitWebApplicationFactory>
 {
     private readonly HttpClient client;
 
     public RateLimitEndpointTests(
-        LinkPulseWebApplicationFactory factory)
+        RateLimitWebApplicationFactory factory)
     {
         client = factory.CreateClient(
             new WebApplicationFactoryClientOptions

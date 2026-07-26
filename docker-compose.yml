@@ -35,10 +35,66 @@ services:
     volumes:
       - linkpulse-redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "ping"
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  migrations:
+    build:
+      context: .
+      dockerfile: src/LinkPulse.Api/Dockerfile
+      target: migrations
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__PostgreSql: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-linkpulse};Username=${POSTGRES_USER:-linkpulse};Password=${POSTGRES_PASSWORD:-linkpulse_dev}"
+      ConnectionStrings__Redis: "redis:6379,abortConnect=false"
+      Jwt__SigningKey: "${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in the .env file}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: src/LinkPulse.Api/Dockerfile
+      target: final
+    image: linkpulse-api:local
+    container_name: linkpulse-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: "8080"
+      ConnectionStrings__PostgreSql: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-linkpulse};Username=${POSTGRES_USER:-linkpulse};Password=${POSTGRES_PASSWORD:-linkpulse_dev}"
+      ConnectionStrings__Redis: "redis:6379,abortConnect=false"
+      Jwt__SigningKey: "${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in the .env file}"
+    ports:
+      - "${API_PORT:-5080}:8080"
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "--fail",
+          "--silent",
+          "http://localhost:8080/health/ready"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 15
     restart: unless-stopped
 
 volumes:
