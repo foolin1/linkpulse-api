@@ -22,6 +22,7 @@ public static class RedirectEndpoints
         HttpContext httpContext,
         LinkPulseDbContext dbContext,
         ILinkCache linkCache,
+        IClickEventRecorder clickEventRecorder,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
@@ -55,6 +56,12 @@ public static class RedirectEndpoints
             {
                 httpContext.Response.Headers[
                     "X-LinkPulse-Cache"] = "HIT";
+
+                await clickEventRecorder.RecordAsync(
+                    cachedLink.Id,
+                    httpContext,
+                    currentTime,
+                    cancellationToken);
 
                 return Results.Redirect(
                     cachedLink.TargetUrl,
@@ -113,7 +120,8 @@ public static class RedirectEndpoints
         {
             return Results.Problem(
                 statusCode:
-                    StatusCodes.Status500InternalServerError,
+                    StatusCodes
+                        .Status500InternalServerError,
                 title: "Invalid redirect target",
                 detail:
                     "The stored target URL cannot be used for a redirect.");
@@ -128,6 +136,12 @@ public static class RedirectEndpoints
 
         await linkCache.SetAsync(
             cachedLinkFromDatabase,
+            currentTime,
+            cancellationToken);
+
+        await clickEventRecorder.RecordAsync(
+            shortLink.Id,
+            httpContext,
             currentTime,
             cancellationToken);
 
@@ -169,15 +183,19 @@ public static class RedirectEndpoints
                    targetUrl,
                    UriKind.Absolute,
                    out var uri)
-               && !string.IsNullOrWhiteSpace(uri.Host)
-               && (uri.Scheme == Uri.UriSchemeHttp
-                   || uri.Scheme == Uri.UriSchemeHttps);
+               && !string.IsNullOrWhiteSpace(
+                   uri.Host)
+               && (uri.Scheme
+                       == Uri.UriSchemeHttp
+                   || uri.Scheme
+                       == Uri.UriSchemeHttps);
     }
 
     private static IResult LinkNotFound()
     {
         return Results.Problem(
-            statusCode: StatusCodes.Status404NotFound,
+            statusCode:
+                StatusCodes.Status404NotFound,
             title: "Short link was not found",
             detail:
                 "No short link exists for the specified code.");
@@ -186,7 +204,8 @@ public static class RedirectEndpoints
     private static IResult LinkUnavailable()
     {
         return Results.Problem(
-            statusCode: StatusCodes.Status410Gone,
+            statusCode:
+                StatusCodes.Status410Gone,
             title: "Short link is unavailable",
             detail:
                 "The short link is disabled or has expired.");

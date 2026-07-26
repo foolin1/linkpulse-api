@@ -4,6 +4,7 @@ using LinkPulse.Api.Authentication;
 using LinkPulse.Api.Caching;
 using LinkPulse.Api.Data;
 using LinkPulse.Api.Data.Entities;
+using LinkPulse.Api.Features.Analytics;
 using LinkPulse.Api.Features.Auth;
 using LinkPulse.Api.Features.Links;
 using LinkPulse.Api.Features.Redirects;
@@ -22,35 +23,41 @@ builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 
 var postgreSqlConnectionString =
-    builder.Configuration.GetConnectionString("PostgreSql")
+    builder.Configuration.GetConnectionString(
+        "PostgreSql")
     ?? throw new InvalidOperationException(
         "Connection string 'PostgreSql' is not configured.");
 
 var redisConnectionString =
-    builder.Configuration.GetConnectionString("Redis")
+    builder.Configuration.GetConnectionString(
+        "Redis")
     ?? throw new InvalidOperationException(
         "Connection string 'Redis' is not configured.");
 
-var jwtSection = builder.Configuration.GetSection(
-    JwtOptions.SectionName);
+var jwtSection =
+    builder.Configuration.GetSection(
+        JwtOptions.SectionName);
 
 var jwtOptions = jwtSection.Get<JwtOptions>()
     ?? throw new InvalidOperationException(
         "JWT configuration is not available.");
 
-if (string.IsNullOrWhiteSpace(jwtOptions.Issuer))
+if (string.IsNullOrWhiteSpace(
+        jwtOptions.Issuer))
 {
     throw new InvalidOperationException(
         "JWT issuer is not configured.");
 }
 
-if (string.IsNullOrWhiteSpace(jwtOptions.Audience))
+if (string.IsNullOrWhiteSpace(
+        jwtOptions.Audience))
 {
     throw new InvalidOperationException(
         "JWT audience is not configured.");
 }
 
-if (string.IsNullOrWhiteSpace(jwtOptions.SigningKey)
+if (string.IsNullOrWhiteSpace(
+        jwtOptions.SigningKey)
     || Encoding.UTF8.GetByteCount(
         jwtOptions.SigningKey) < 32)
 {
@@ -58,7 +65,8 @@ if (string.IsNullOrWhiteSpace(jwtOptions.SigningKey)
         "JWT signing key must contain at least 32 bytes.");
 }
 
-if (jwtOptions.AccessTokenLifetimeMinutes is < 1 or > 1440)
+if (jwtOptions.AccessTokenLifetimeMinutes
+    is < 1 or > 1440)
 {
     throw new InvalidOperationException(
         "JWT access token lifetime must be between 1 and 1440 minutes.");
@@ -120,6 +128,10 @@ builder.Services.AddSingleton<
     RedisLinkCache>();
 
 builder.Services.AddScoped<
+    IClickEventRecorder,
+    ClickEventRecorder>();
+
+builder.Services.AddScoped<
     IPasswordHasher<ApplicationUser>,
     PasswordHasher<ApplicationUser>>();
 
@@ -143,16 +155,19 @@ builder.Services
                 new TokenValidationParameters
                 {
                     ValidateIssuer = true,
-                    ValidIssuer = jwtOptions.Issuer,
+                    ValidIssuer =
+                        jwtOptions.Issuer,
 
                     ValidateAudience = true,
-                    ValidAudience = jwtOptions.Audience,
+                    ValidAudience =
+                        jwtOptions.Audience,
 
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey =
                         new SymmetricSecurityKey(
                             Encoding.UTF8.GetBytes(
-                                jwtOptions.SigningKey)),
+                                jwtOptions
+                                    .SigningKey)),
 
                     ValidateLifetime = true,
                     RequireExpirationTime = true,
@@ -171,11 +186,13 @@ builder.Services
     .AddHealthChecks()
     .AddCheck<PostgreSqlHealthCheck>(
         "postgresql",
-        failureStatus: HealthStatus.Unhealthy,
+        failureStatus:
+            HealthStatus.Unhealthy,
         tags: ["ready"])
     .AddCheck<RedisHealthCheck>(
         "redis",
-        failureStatus: HealthStatus.Unhealthy,
+        failureStatus:
+            HealthStatus.Unhealthy,
         tags: ["ready"]);
 
 var app = builder.Build();
@@ -197,7 +214,8 @@ app.MapGet(
             {
                 service = "LinkPulse API",
                 status = "Running",
-                documentation = "/openapi/v1.json"
+                documentation =
+                    "/openapi/v1.json"
             }))
     .WithName("GetServiceInfo")
     .WithTags("System");
@@ -207,17 +225,23 @@ app.MapGet(
         (IHostEnvironment environment) =>
         {
             var assembly =
-                typeof(Program).Assembly.GetName();
+                typeof(Program)
+                    .Assembly
+                    .GetName();
 
             return Results.Ok(
                 new
                 {
                     name = assembly.Name,
+
                     version =
-                        assembly.Version?.ToString()
+                        assembly.Version
+                            ?.ToString()
                         ?? "unknown",
+
                     environment =
-                        environment.EnvironmentName
+                        environment
+                            .EnvironmentName
                 });
         })
     .WithName("GetVersion")
@@ -225,6 +249,7 @@ app.MapGet(
 
 AuthEndpoints.Map(app);
 LinkEndpoints.Map(app);
+AnalyticsEndpoints.Map(app);
 RedirectEndpoints.Map(app);
 
 app.MapHealthChecks(
@@ -232,8 +257,10 @@ app.MapHealthChecks(
     new HealthCheckOptions
     {
         Predicate = _ => false,
+
         ResponseWriter =
-            HealthCheckResponseWriter.WriteAsync
+            HealthCheckResponseWriter
+                .WriteAsync
     });
 
 app.MapHealthChecks(
@@ -241,9 +268,12 @@ app.MapHealthChecks(
     new HealthCheckOptions
     {
         Predicate = healthCheck =>
-            healthCheck.Tags.Contains("ready"),
+            healthCheck.Tags.Contains(
+                "ready"),
+
         ResponseWriter =
-            HealthCheckResponseWriter.WriteAsync
+            HealthCheckResponseWriter
+                .WriteAsync
     });
 
 app.MapHealthChecks(
@@ -251,9 +281,12 @@ app.MapHealthChecks(
     new HealthCheckOptions
     {
         Predicate = healthCheck =>
-            healthCheck.Tags.Contains("ready"),
+            healthCheck.Tags.Contains(
+                "ready"),
+
         ResponseWriter =
-            HealthCheckResponseWriter.WriteAsync
+            HealthCheckResponseWriter
+                .WriteAsync
     });
 
 app.Run();
