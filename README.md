@@ -454,5 +454,3 @@ The `v1.0.0` release intentionally does not include:
 - browser or device parsing;
 - distributed rate limiting;
 - a frontend application.
-
-These features are outside the scope of the portfolio version.
