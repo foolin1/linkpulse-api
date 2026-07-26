@@ -9,17 +9,14 @@ public sealed class ApplicationUser
     public ApplicationUser(
         string email,
         string normalizedEmail,
-        string passwordHash,
         DateTimeOffset createdAt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
         ArgumentException.ThrowIfNullOrWhiteSpace(normalizedEmail);
-        ArgumentException.ThrowIfNullOrWhiteSpace(passwordHash);
 
         Id = Guid.NewGuid();
         Email = email.Trim();
         NormalizedEmail = normalizedEmail.Trim();
-        PasswordHash = passwordHash;
         CreatedAt = createdAt;
     }
 
@@ -33,5 +30,13 @@ public sealed class ApplicationUser
 
     public DateTimeOffset CreatedAt { get; private set; }
 
-    public ICollection<ShortLink> ShortLinks { get; } = new List<ShortLink>();
+    public ICollection<ShortLink> ShortLinks { get; } =
+        new List<ShortLink>();
+
+    public void SetPasswordHash(string passwordHash)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(passwordHash);
+
+        PasswordHash = passwordHash;
+    }
 }

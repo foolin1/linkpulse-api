@@ -1,16 +1,15 @@
 using System.Net;
 using System.Net.Http.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace LinkPulse.IntegrationTests;
 
 public sealed class VersionEndpointTests
-    : IClassFixture<WebApplicationFactory<Program>>
+    : IClassFixture<LinkPulseWebApplicationFactory>
 {
     private readonly HttpClient client;
 
     public VersionEndpointTests(
-        WebApplicationFactory<Program> factory)
+        LinkPulseWebApplicationFactory factory)
     {
         client = factory.CreateClient();
     }
@@ -18,17 +17,41 @@ public sealed class VersionEndpointTests
     [Fact]
     public async Task GetVersion_ShouldReturnServiceMetadata()
     {
-        using var response = await client.GetAsync("/version");
+        using var response =
+            await client.GetAsync("/version");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            HttpStatusCode.OK,
+            response.StatusCode);
 
         var payload =
-            await response.Content.ReadFromJsonAsync<VersionResponse>();
+            await response.Content
+                .ReadFromJsonAsync<VersionResponse>();
 
         Assert.NotNull(payload);
-        Assert.Equal("LinkPulse.Api", payload.Name);
-        Assert.False(string.IsNullOrWhiteSpace(payload.Version));
-        Assert.False(string.IsNullOrWhiteSpace(payload.Environment));
+
+        Assert.Equal(
+            "LinkPulse.Api",
+            payload.Name);
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(
+                payload.Version));
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(
+                payload.Environment));
+    }
+
+    [Fact]
+    public async Task GetLinks_WithoutToken_ShouldReturnUnauthorized()
+    {
+        using var response =
+            await client.GetAsync("/api/links");
+
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            response.StatusCode);
     }
 
     private sealed record VersionResponse(
